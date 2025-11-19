@@ -2,4 +2,5 @@ flask
 numpy
 httpx
 pandas
+matplotlib
 python-dotenv
