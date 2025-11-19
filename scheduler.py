@@ -9,6 +9,7 @@ import os
 from dotenv import load_dotenv
 from collections import namedtuple
 from shc_algorithm import stochastic_hill_climb
+from pso_algorithm import pso_scheduler
 
 # --- Konfigurasi Lingkungan ---
 
@@ -23,8 +24,10 @@ VM_SPECS = {
 
 VM_PORT = 5000
 DATASET_FILE = 'dataset.txt'
-RESULTS_FILE = 'shc_results.csv'
+RESULTS_FILE = 'results/shc_results.csv'
 SHC_ITERATIONS = 1000
+PSO_ITERATIONS = 200
+PSO_SWARM_SIZE = 30
 
 VM = namedtuple('VM', ['name', 'ip', 'cpu_cores', 'ram_gb'])
 Task = namedtuple('Task', ['id', 'name', 'index', 'cpu_load'])
@@ -125,7 +128,7 @@ async def execute_task_on_vm(task: Task, vm: VM, client: httpx.AsyncClient,
 
 # --- Fungsi Paska-Proses & Metrik ---
 
-def write_results_to_csv(results_list: list):
+def write_results_to_csv(results_list: list, output_file: str):
     """Menyimpan hasil eksekusi ke file CSV."""
     if not results_list:
         print("Tidak ada hasil untuk ditulis ke CSV.", file=sys.stderr)
@@ -148,13 +151,13 @@ def write_results_to_csv(results_list: list):
     formatted_results.sort(key=lambda item: item['start_time'])
 
     try:
-        with open(RESULTS_FILE, 'w', newline='', encoding='utf-8') as f:
+        with open(output_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=headers)
             writer.writeheader()
             writer.writerows(formatted_results)
-        print(f"\nData hasil eksekusi disimpan ke {RESULTS_FILE}")
+        print(f"\nData hasil eksekusi disimpan ke {output_file}")
     except IOError as e:
-        print(f"Error menulis ke CSV {RESULTS_FILE}: {e}", file=sys.stderr)
+        print(f"Error menulis ke CSV {output_file}: {e}", file=sys.stderr)
 
 def calculate_and_print_metrics(results_list: list, vms: list[VM], total_schedule_time: float):
     try:
@@ -235,8 +238,20 @@ async def main():
     tasks_dict = {task.id: task for task in tasks}
     vms_dict = {vm.name: vm for vm in vms}
 
-    # 2. Jalankan Algoritma Penjadwalan (SHC)
-    best_assignment = stochastic_hill_climb(tasks, vms, SHC_ITERATIONS)
+    # Pilih algoritma dari argumen CLI: default 'shc'
+    algo = sys.argv[1].lower() if len(sys.argv) > 1 else 'shc'
+
+    if algo == 'shc':
+        print("Menggunakan algoritma: Stochastic Hill Climbing (SHC)")
+        best_assignment = stochastic_hill_climb(tasks, vms, SHC_ITERATIONS)
+        output_file = 'results/shc_results.csv'
+    elif algo == 'pso':
+        print("Menggunakan algoritma: Particle Swarm Optimization (PSO)")
+        best_assignment = pso_scheduler(tasks, vms, iterations=PSO_ITERATIONS, swarm_size=PSO_SWARM_SIZE)
+        output_file = 'results/pso_results.csv'
+    else:
+        print(f"Algoritma '{algo}' tidak dikenal. Gunakan 'shc' atau 'pso'.", file=sys.stderr)
+        return
     
     print("\nPenugasan Tugas Terbaik Ditemukan:")
     for i in range(min(10, len(best_assignment))): # Tampilkan 10 pertama
@@ -277,7 +292,7 @@ async def main():
         print(f"\nSemua eksekusi tugas selesai dalam {total_schedule_time:.4f} detik.")
     
     # 5. Simpan Hasil dan Hitung Metrik
-    write_results_to_csv(results_list)
+    write_results_to_csv(results_list, output_file)
     calculate_and_print_metrics(results_list, vms, total_schedule_time)
 
 if __name__ == "__main__":

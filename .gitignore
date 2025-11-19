@@ -13,3 +13,7 @@ wheels/
 # Secret Files :>
 dataset.txt
 result.csv
+
+/results
+/grapich
+/datasets
