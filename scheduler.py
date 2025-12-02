@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 from collections import namedtuple
 from shc_algorithm import stochastic_hill_climb
 from pso_algorithm import pso_scheduler
-
-# --- Konfigurasi Lingkungan ---
+from rr_algorithm import round_robin_scheduler
+from fcfs_algorithm import fcfs_scheduler
 
 load_dotenv()
 
@@ -23,11 +23,17 @@ VM_SPECS = {
 }
 
 VM_PORT = 5000
-DATASET_FILE = 'dataset.txt'
-RESULTS_FILE = 'results/shc_results.csv'
+DEFAULT_DATASET_FILE = 'datasets/dataset.txt'
 SHC_ITERATIONS = 1000
 PSO_ITERATIONS = 200
 PSO_SWARM_SIZE = 30
+
+DATASET_MAP = {
+    # key pendek -> path relatif di folder datasets
+    'random_simple': os.path.join('datasets', 'dataset_random_simple.txt'),
+    'low_high': os.path.join('datasets', 'dataset_low_high.txt'),
+    'random_stratified': os.path.join('datasets', 'dataset_random_stratified.txt'),
+}
 
 VM = namedtuple('VM', ['name', 'ip', 'cpu_cores', 'ram_gb'])
 Task = namedtuple('Task', ['id', 'name', 'index', 'cpu_load'])
@@ -226,11 +232,36 @@ def calculate_and_print_metrics(results_list: list, vms: list[VM], total_schedul
 # --- 6. Fungsi Main ---
 
 async def main():
+    # Argumen CLI:
+    #   argv[1] = algoritma  (shc|pso|rr|fcfs), default 'shc'
+    #   argv[2] = indeks percobaan (opsional), default '1'
+    #   argv[3] = dataset (opsional), bisa berupa:
+    #            - nama pendek: random_simple | low_high | random_stratified
+    #            - atau path langsung ke file dataset
+    algo = sys.argv[1].lower() if len(sys.argv) > 1 else 'shc'
+    exp_index = sys.argv[2] if len(sys.argv) > 2 else '1'
+    dataset_arg = sys.argv[3] if len(sys.argv) > 3 else None
+
+    # Tentukan file dataset yang digunakan + nama dataset untuk folder
+    if dataset_arg is None:
+        dataset_path = DEFAULT_DATASET_FILE
+        dataset_name = 'default'
+    else:
+        key = dataset_arg.lower()
+        if key in DATASET_MAP:
+            dataset_path = DATASET_MAP[key]
+            dataset_name = key.replace('_', '-')  # nama folder: random-simple, low-high, ...
+        else:
+            dataset_path = dataset_arg
+            # gunakan nama file (tanpa ekstensi) sebagai nama folder
+            base = os.path.basename(dataset_path)
+            dataset_name, _ = os.path.splitext(base)
+
     # 1. Inisialisasi
     vms = [VM(name, spec['ip'], spec['cpu'], spec['ram_gb']) 
             for name, spec in VM_SPECS.items()]
     
-    tasks = load_tasks(DATASET_FILE)
+    tasks = load_tasks(dataset_path)
     if not tasks:
         print("Tidak ada tugas untuk dijadwalkan. Keluar.", file=sys.stderr)
         return
@@ -238,23 +269,39 @@ async def main():
     tasks_dict = {task.id: task for task in tasks}
     vms_dict = {vm.name: vm for vm in vms}
 
-    # Pilih algoritma dari argumen CLI: default 'shc'
-    algo = sys.argv[1].lower() if len(sys.argv) > 1 else 'shc'
+    # Normalisasi indeks percobaan (untuk nama file/path)
+    exp_index_str = str(exp_index).strip()
+    if not exp_index_str:
+        exp_index_str = '1'
 
+    # 2. Pilih algoritma dan tentukan path output
     if algo == 'shc':
         print("Menggunakan algoritma: Stochastic Hill Climbing (SHC)")
         best_assignment = stochastic_hill_climb(tasks, vms, SHC_ITERATIONS)
-        output_file = 'results/shc_results.csv'
+        algo_name = 'shc'
     elif algo == 'pso':
         print("Menggunakan algoritma: Particle Swarm Optimization (PSO)")
         best_assignment = pso_scheduler(tasks, vms, iterations=PSO_ITERATIONS, swarm_size=PSO_SWARM_SIZE)
-        output_file = 'results/pso_results.csv'
+        algo_name = 'pso'
+    elif algo == 'rr':
+        print("Menggunakan algoritma: Round Robin (RR)")
+        best_assignment = round_robin_scheduler(tasks, vms)
+        algo_name = 'rr'
+    elif algo == 'fcfs':
+        print("Menggunakan algoritma: First-Come First-Served (FCFS)")
+        best_assignment = fcfs_scheduler(tasks, vms)
+        algo_name = 'fcfs'
     else:
-        print(f"Algoritma '{algo}' tidak dikenal. Gunakan 'shc' atau 'pso'.", file=sys.stderr)
+        print(f"Algoritma '{algo}' tidak dikenal. Gunakan 'shc', 'pso', 'rr', atau 'fcfs'.", file=sys.stderr)
         return
-    
-    print("\nPenugasan Tugas Terbaik Ditemukan:")
-    for i in range(min(10, len(best_assignment))): # Tampilkan 10 pertama
+
+    # Pastikan direktori results/<algo_name>/<dataset_name> ada
+    results_dir = os.path.join('results', algo_name, dataset_name)
+    os.makedirs(results_dir, exist_ok=True)
+    output_file = os.path.join(results_dir, f"{exp_index_str}.csv")
+
+    print(f"\nPenugasan Tugas Terbaik Ditemukan (algoritma={algo_name}, percobaan={exp_index_str}, dataset={dataset_name}):")
+    for i in range(min(10, len(best_assignment))):  # Tampilkan 10 pertama
         print(f"  - Tugas {i} -> {best_assignment[i]}")
     if len(best_assignment) > 10:
         print("  - ... etc.")

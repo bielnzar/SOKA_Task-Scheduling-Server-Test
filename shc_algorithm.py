@@ -2,7 +2,8 @@ import random
 from collections import namedtuple
 
 VM = namedtuple('VM', ['name', 'ip', 'cpu_cores', 'ram_gb'])
-Task = namedtuple('Task', ['id', 'name', 'index', 'cpu_load', 'ram_mb'])
+# Struktur Task harus sama dengan yang digunakan di scheduler.py
+Task = namedtuple('Task', ['id', 'name', 'index', 'cpu_load'])
 
 # --- Algoritma Stochastic Hill Climbing ---
 

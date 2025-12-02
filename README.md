@@ -2,11 +2,13 @@
 
 Repo ini merupakan kode dari server yang digunakan dalam pengujian Task Scheduling pada Server IT serta contoh algoritma scheduler untuk keperluan mata kuliah **Strategi Optimasi Komputasi Awan (SOKA)**.
 
-Saat ini tersedia **dua algoritma penjadwalan** yang dapat digunakan dan dibandingkan:
-- **Stochastic Hill Climbing (SHC)** – algoritma awal/bawaan.
-- **Particle Swarm Optimization (PSO)** – algoritma tambahan untuk perbandingan performa.
+Saat ini tersedia **empat algoritma penjadwalan** yang dapat digunakan dan dibandingkan:
+- **Stochastic Hill Climbing (SHC)** – algoritma awal/bawaan berbasis local search.
+- **Particle Swarm Optimization (PSO)** – algoritma swarm-based untuk optimasi makespan.
+- **Round Robin (RR)** – algoritma sederhana berbasis giliran bergantian antar VM.
+- **First-Come First-Served (FCFS)** – algoritma yang melayani task sesuai urutan kedatangan dengan pemilihan VM berbasis beban (load-aware).
 
-Hasil eksekusi kedua algoritma dapat disimpan ke file CSV dan divisualisasikan menggunakan script pembuat grafik.
+Setiap algoritma bisa diuji dengan beberapa dataset yang tersedia di folder `datasets/` dan hasilnya disimpan per algoritma, per dataset, dan per percobaan.
 
 ## Cara Penggunaan - Dev
 
@@ -39,9 +41,19 @@ VM_PORT=5000
 
 - **Particle Swarm Optimization (PSO)**  
   Implementasi terdapat pada file `pso_algorithm.py`.  
-  Algoritma ini menggunakan sekumpulan partikel (swarm) yang masing-masing merepresentasikan solusi penjadwalan. Setiap partikel bergerak di ruang solusi dengan mempertimbangkan pengalaman terbaiknya sendiri (pbest) dan terbaik global (gbest) untuk meminimalkan estimasi makespan.
+  Algoritma ini menggunakan sekumpulan partikel (swarm) yang masing-masing merepresentasikan solusi penjadwalan. Setiap partikel bergerak di ruang solusi dengan mempertimbangkan pengalaman terbaiknya sendiri (pbest) dan terbaik global (gbest) untuk meminimalkan estimasi makespan. Penjelasan lebih detail tersedia di `PSO.md`.
 
-5. Untuk menjalankan server, jalankan docker
+- **Round Robin (RR)**  
+  Implementasi terdapat pada file `rr_algorithm.py`.  
+  Setiap task secara berurutan dialokasikan ke VM bergantian (vm1, vm2, vm3, vm4, kembali ke vm1, dst.).
+
+- **First-Come First-Served (FCFS)**  
+  Implementasi terdapat pada file `fcfs_algorithm.py`.  
+  Task dilayani sesuai urutan kedatangan (urutan di dataset). Setiap task yang datang ditempatkan ke VM dengan estimasi waktu selesai paling cepat berdasarkan beban saat ini (cpu_load / cpu_cores).
+
+5. Menjalankan server
+
+Untuk menjalankan server, jalankan Docker:
 
 ```bash
 docker compose build --no-cache
@@ -52,7 +64,17 @@ Server akan berjalan pada port `5000` (dapat diubah melalui konfigurasi jika dip
 - `GET /health` – untuk pengecekan status server.
 - `GET /task/<index>` – untuk mensimulasikan eksekusi task dengan indeks `1-10`.
 
-6. Inisiasi Dataset untuk scheduler. Buat file `dataset.txt` kemudian isi dengan dataset berupa angka 1 - 10. Berikut adalah contohnya:
+6. Dataset untuk scheduler
+
+Semua dataset berada di folder `datasets/`. Beberapa dataset yang disediakan:
+
+- `datasets/dataset_random_simple.txt`   → key: `random_simple`
+- `datasets/dataset_low_high.txt`        → key: `low_high`
+- `datasets/dataset_random_stratified.txt` → key: `random_stratified`
+
+Masih tetap dimungkinkan menggunakan `dataset.txt` di root repo sebagai dataset default.
+
+Format isi dataset berupa angka 1–10 per baris. Contoh:
 
 ```txt
 6
@@ -77,34 +99,90 @@ Server akan berjalan pada port `5000` (dapat diubah melalui konfigurasi jika dip
 10
 ```
 
-Anda juga dapat menggunakan dataset yang sudah tersedia pada folder `datasets/` (misalnya `datasets/randomSimple/RandSimple1000.txt`, dll) dengan cara menyalin/rename file tersebut menjadi `dataset.txt`.
-
 7. Menjalankan scheduler
 
 **Catatan:** Pastikan sudah terhubung ke jaringan yang dapat mengakses VM (misal VPN / WiFi ITS).
 
-- Menjalankan dengan **Stochastic Hill Climbing (default)**:
+Format umum pemanggilan scheduler:
 
 ```bash
-uv run scheduler.py
-# atau
-uv run scheduler.py shc
+uv run scheduler.py <algoritma> <percobaan> <dataset>
 ```
 
-- Menjalankan dengan **Particle Swarm Optimization (PSO)**:
+- `<algoritma>`: salah satu dari `shc`, `pso`, `rr`, `fcfs`  
+  Jika tidak diisi, default = `shc`.
+- `<percobaan>`: indeks percobaan (misal `1`, `2`, `3`, ...).  
+  Jika tidak diisi, default = `1`.
+- `<dataset>` (opsional):
+  - Nama pendek yang dikenali scheduler:
+    - `random_simple`      → `datasets/dataset_random_simple.txt` → folder hasil: `random-simple`
+    - `low_high`           → `datasets/dataset_low_high.txt` → folder hasil: `low-high`
+    - `random_stratified`  → `datasets/dataset_random_stratified.txt` → folder hasil: `random-stratified`
+  - Atau path langsung ke file dataset (mis. `datasets/dataset_low_high.txt`).
+  - Jika tidak diisi, scheduler akan menggunakan `dataset.txt` dan folder hasil bernama `default`.
+
+Contoh:
+
+- Menjalankan **Stochastic Hill Climbing** dengan dataset default (`dataset.txt`):
 
 ```bash
-uv run scheduler.py pso
+uv run scheduler.py              # sama dengan uv run scheduler.py shc 1
+uv run scheduler.py shc 1
+uv run scheduler.py shc 2        # percobaan ke-2 untuk SHC
 ```
 
-8. Hasil eksekusi
+- Menjalankan **PSO** dengan dataset `random_simple`:
 
-Setelah eksekusi sukses, hasil akan disimpan dalam folder `results/`:
+```bash
+uv run scheduler.py pso 1 random_simple
+uv run scheduler.py pso 2 random_simple
+```
 
-- Hasil dengan SHC:
-  - `results/shc_results.csv`
-- Hasil dengan PSO:
-  - `results/pso_results.csv`
+- Menjalankan **Round Robin (RR)** dengan dataset `low_high`:
+
+```bash
+uv run scheduler.py rr 1 low_high
+```
+
+- Menjalankan **FCFS** dengan dataset file tertentu:
+
+```bash
+uv run scheduler.py fcfs 1 datasets/dataset_random_stratified.txt
+```
+
+8. Struktur hasil eksekusi
+
+Setelah eksekusi sukses, hasil akan disimpan dalam folder `results/` dengan struktur:
+
+```text
+results/
+  <algoritma>/
+    <dataset>/
+      <percobaan>.csv
+```
+
+Contoh:
+
+```text
+results/
+  shc/
+    default/
+      1.csv
+      2.csv
+    random-simple/
+      1.csv
+  pso/
+    random-simple/
+      1.csv
+    low-high/
+      1.csv
+  rr/
+    default/
+      1.csv
+  fcfs/
+    dataset_random_stratified/
+      1.csv
+```
 
 Di console juga akan muncul perhitungan metrik untuk analisis, antara lain:
 - Makespan (waktu total)
@@ -115,7 +193,7 @@ Di console juga akan muncul perhitungan metrik untuk analisis, antara lain:
 - Imbalance Degree (ketidakseimbangan load antar VM)
 - Resource Utilization (utilisasi CPU)
 
-Contoh tampilan hasil:
+Contoh tampilan hasil lama (format CSV dan console masih relevan, hanya lokasi file yang berubah):yg punya pertanyaan bolehh lah dilanjut gess
 
 `result.csv`
 
@@ -125,24 +203,81 @@ Contoh tampilan hasil:
 
 ![console](./images/console.png)
 
-9. Membuat grafik perbandingan SHC vs PSO
+9. Automasi percobaan dengan `auto-run.bash`
 
-Untuk membandingkan performa kedua algoritma secara visual, gunakan script `grapich_comparison.py`.
+Untuk mempermudah menjalankan banyak percobaan sekaligus, tersedia script `auto-run.bash`.
 
-Pastikan kedua file hasil sudah ada:
-- `results/shc_results.csv`
-- `results/pso_results.csv`
-
-Lalu jalankan:
+Pastikan script bisa dieksekusi:
 
 ```bash
-uv run grapich_comparison.py
+chmod +x auto-run.bash
 ```
 
-Script ini akan menghasilkan beberapa gambar di folder `grapich/`, antara lain:
-- `exec_time_comparison.png` – perbandingan distribusi execution time per task.
-- `makespan_comparison.png` – perbandingan makespan SHC vs PSO.
-- `vm_load_comparison.png` – perbandingan total execution time per VM.
+Format pemanggilan:
+
+```bash
+./auto-run.bash <jumlah_percobaan> [algo1 algo2 ...] [-- dataset]
+```
+
+- `<jumlah_percobaan>`: banyaknya percobaan per algoritma (wajib).
+- `[algo1 algo2 ...]`: daftar algoritma (opsional). Jika tidak diisi, default: `shc pso rr fcfs`.
+- `-- dataset` (opsional): nama dataset yang akan diteruskan ke `scheduler.py`, bisa berupa:
+  - `random_simple`, `low_high`, `random_stratified` (nama pendek yang dikenali scheduler).
+  - path langsung ke file dataset, misalnya `datasets/dataset_low_high.txt`.
+
+Contoh:
+
+```bash
+# Jalankan semua algoritma (shc, pso, rr, fcfs) masing-masing 5 kali dengan dataset default (dataset.txt)
+./auto-run.bash 5
+
+# Hanya jalankan SHC dan PSO, masing-masing 3 kali dengan dataset random_simple
+./auto-run.bash 3 shc pso -- random_simple
+
+# Jalankan RR dan FCFS masing-masing 2 kali dengan dataset_low_high.txt
+./auto-run.bash 2 rr fcfs -- datasets/dataset_low_high.txt
+```
+
+Hasil dari script ini akan mengikuti struktur: `results/<algo>/<dataset>/<percobaan>.csv`.
+
+10. Membuat grafik perbandingan algoritma
+
+Untuk membandingkan performa algoritma secara visual pada **dataset dan percobaan tertentu**, gunakan script `grapich_comparison.py`.
+
+Format pemanggilan:
+
+```bash
+uv run grapich_comparison.py <exp_index> <algo1> [algo2 ...] [-- dataset]
+```
+
+- `<exp_index>`: nomor percobaan (mis. `1`).
+- `<algo1> [algo2 ...]`: daftar algoritma yang akan dibandingkan (`shc`, `pso`, `rr`, `fcfs`).
+- `-- dataset` (opsional): nama dataset (sama aturan seperti di `scheduler.py`). Jika tidak diisi, dianggap `default`.
+
+Contoh:
+
+```bash
+# Bandingkan semua algoritma pada percobaan ke-1 dengan dataset default
+uv run grapich_comparison.py 1 shc pso rr fcfs
+
+# Bandingkan SHC vs PSO pada percobaan ke-2 dengan dataset random_simple
+uv run grapich_comparison.py 2 shc pso -- random_simple
+
+# Bandingkan RR vs FCFS pada percobaan ke-3 dengan dataset_low_high.txt
+uv run grapich_comparison.py 3 rr fcfs -- datasets/dataset_low_high.txt
+```
+
+Script ini akan membaca file dari:
+
+```text
+results/<algo>/<dataset>/<exp_index>.csv
+```
+
+Lalu menyimpan gambar ke folder `grapich/<dataset>/` dengan nama:
+
+- `exec_time_comparison_exp_<exp_index>.png`
+- `makespan_comparison_exp_<exp_index>.png`
+- `vm_load_comparison_exp_<exp_index>.png`
 
 ## Hak Cipta / Acknowledgement
 Sebagian konten pada repositori ini merupakan turunan atau didasarkan pada garapan dari
